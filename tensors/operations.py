@@ -19,7 +19,7 @@ def get_permutation(tensor, decompose=True):
         permutation order
     """
     assert len(tensor.shape) % 2 == 0, "The order of the tensor should be even"
-    d = len(tensor) // 2
+    d = len(tensor.shape) // 2
     if decompose:
         return tuple(torch.argsort(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2)))))
     else:
