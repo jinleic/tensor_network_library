@@ -4,8 +4,30 @@ from tensorly.decomposition._tt import svd_interface
 from tensorly.tt_tensor import TTTensor, tt_to_tensor
 from tensors.tensor import MPO
 
-def get_permutation_order(tensor):
-    """Get the permutation order for MPO Decomposition
+def get_permutation(tensor, decompose=True):
+    """Get the permutation for MPO Decomposition or decompression
+
+    Parameters
+    ----------
+    tensor : tensor
+        tensor to decompose or decompress
+    decompose : bool
+        if True, get the permutation for MPO Decomposition, else get the permutation for decompression
+    Returns
+    -------
+    order : list
+        permutation order
+    """
+    assert len(tensor.shape) % 2 == 0, "The order of the tensor should be even"
+    d = len(tensor) // 2
+    if decompose:
+        return tuple(torch.argsort(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2)))))
+    else:
+        return tuple(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2))))
+    
+
+def get_decomposition_permutation(tensor):
+    """Get the permutation for MPO Decomposition
 
     Parameters
     ----------
@@ -16,9 +38,30 @@ def get_permutation_order(tensor):
     order : list
         permutation order
     """
+    print("DeprecationWarning: get_decomposition_permutation is deprecated. Use get_permutation instead.")
+    return get_permutation(tensor, decompose=True)
     assert len(tensor.shape) % 2 == 0, "The order of the tensor should be even"
     d = len(tensor) // 2
     return tuple(torch.argsort(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2)))))
+
+
+def get_decompression_permutation(tensor):
+    """Get the permutation for decompression of MPO Decomposition
+    
+    Parameters
+    ----------
+    tensor : tensor
+        tensor to decompress
+    Returns
+    -------
+    order : list
+        permutation order
+    """
+    print("DeprecationWarning: get_decompression_permutation is deprecated. Use get_permutation instead.")
+    return get_permutation(tensor, decompose=False)
+    assert len(tensor.shape) % 2 == 0, "The order of the tensor should be even"
+    d = len(tensor.shape) // 2
+    return tuple(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2))))
 
 
 def _validate_tt_rank(
@@ -156,7 +199,7 @@ def matrix_by_vector(matrix, vector):
     d = len(matrix)
     factors = [None] * d
     for k in range(d):
-        m_k = matrix[k] # (r_{k-1}, i_k, j_k r_k)
+        m_k = matrix[k] # (r_{k-1}, i_k, j_k, r_k)
         x_k = vector[k] # (d_{k-1}, j_k, d_k)
         assert len(m_k.shape) == 4, "The matrix factor should be order-4 tensor"
         assert len(x_k.shape) == 3, "The vector factor should be order-3 tensor"
@@ -173,6 +216,68 @@ def matrix_by_vector(matrix, vector):
         factors[k] = factors[k].reshape(r_prev * d_prev, i_k, d_next * r_next)
     return TTTensor(factors)
 
+
+def matrix_by_matrix(A, B):
+    """Perform matrix-by-matrix product
+    
+    Parameters
+    ----------
+    A : MPO
+        MPO Decomposition of the first matrix
+    B : MPO
+        MPO Decomposition of the second matrix
+    Returns
+    -------
+    MPO : MPO
+        MPO Decomposition of the product
+    """
+    assert len(A) == len(B), "The number of factors in the matrix A and B should be the same"
+    d = len(A)
+    factors = [None] * d
+    for k in range(d):
+        a_k = A[k] # (r_{k-1}, i_k, j_k, r_k)
+        b_k = B[k] # (d_{k-1}, j_k, l_k, d_k)
+        # print(f"{k} shape: {a_k.shape}, {b_k.shape}")
+        assert len(a_k.shape) == 4, "The matrix factor should be order-4 tensor"
+        assert len(b_k.shape) == 4, "The vector factor should be order-4 tensor"
+        assert a_k.shape[2] == b_k.shape[1], "The inner dimensions of the matrix A and B should be the same"
+        r_prev, i_k, j_k, r_next = a_k.shape
+        d_prev, j_k, l_k, d_next = b_k.shape
+        a_k = a_k.transpose(0, 1, 3, 2) # (r_{k-1}, i_k, r_k, j_k)
+        a_k = a_k.reshape(-1, j_k) # (r_{k-1} * i_k * r_k, j_k)
+        b_k = b_k.transpose(1, 0, 2, 3) # (j_k, d_{k-1}, l_k, d_k)
+        b_k = b_k.reshape(j_k, -1) # (j_k, d_{k-1} * l_k * d_k)
+        # print(f"{k} dot: {a_k.shape}, {b_k.shape}")
+        factors[k] = tl.dot(a_k, b_k) # (r_{k-1} * i_k * r_k, d_{k-1} * l_k * d_k)
+        factors[k] = factors[k].reshape(r_prev, i_k, r_next, d_prev, l_k, d_next)
+        factors[k] = factors[k].transpose(0, 3, 1, 4, 2, 5) # (r_{k-1}, d_{k-1}, i_k, l_k, r_k, d_k)
+        factors[k] = factors[k].reshape(r_prev * d_prev, i_k, l_k, d_next * r_next)
+    return MPO(factors)
+
+def validate_stacked_product(y_mpo, y, rtol=0.00001, atol=1e-8):
+    """Validate the stacked matrix-by-vector product of MPO Decomposition
+
+    Parameters
+    ----------
+    y_mpo : MPO
+        stacked MPO Decomposition of the product
+    y : tensor
+        tensor of the product
+    rtol : float
+        relative tolerance
+    atol : float
+        absolute tolerance
+    Raises error if the product is not valid
+    """
+    for i in range(len(y_mpo)):
+        y_mpo[i] = torch.tensor(tt_to_tensor(y_mpo[i]))
+        y_mpo[i] = y_mpo[i].reshape(-1)
+    y_tensor = torch.vstack(y_mpo).transpose(1,0).reshape(-1)
+    y = y.reshape(-1)
+    print(f"Error of stacked MPO-form matrix-by-vector product: {torch.max(torch.abs(y_tensor - y))}")
+    assert torch.allclose(y_tensor, y, rtol, atol)
+
+
 def validate_product(y_mpo, y, rtol=0.00001, atol=1e-8):
     """Validate the product of MPO Decomposition
 
@@ -188,11 +293,23 @@ def validate_product(y_mpo, y, rtol=0.00001, atol=1e-8):
         absolute tolerance
     Raises error if the product is not valid
     """
-    y_tensor = tt_to_tensor(y_mpo)
-    y_tensor = torch.tensor(y_tensor.reshape(-1))
-    y = y.reshape(-1)
-    print(f"Error of MPO-form matrix-by-vector product: {torch.max(torch.abs(y - y_tensor))}")
-    assert torch.allclose(y, y_tensor, rtol, atol)
+    if len(y_mpo[0].shape) == 3:
+        y_tensor = torch.tensor(tt_to_tensor(y_mpo))
+        y_tensor = y_tensor.reshape(-1)
+        y = y.reshape(-1)
+        print(f"Error of MPO-form matrix-by-vector product: {torch.max(torch.abs(y - y_tensor))}")
+        assert torch.allclose(y, y_tensor, rtol, atol)
+    elif len(y_mpo[0].shape) == 4:
+        y_tensor = torch.tensor(mpo_to_tensor(y_mpo))
+        order = get_permutation(y_tensor, decompose=False)
+        y_tensor = y_tensor.permute(order)
+        y_tensor = y_tensor.reshape(-1)
+        y = y.reshape(-1)
+        print(f"Error of MPO-form matrix-by-matrix product: {torch.max(torch.abs(y - y_tensor))}")
+        assert torch.allclose(y, y_tensor, rtol, atol)
+    else:
+        raise ValueError("The order of the MPO factors should be 3 or 4")
+
 
 def validate_decomposition(W_mpo, W, rtol=0.00001, atol=1e-8):
     """Validate the MPO Decomposition
@@ -211,10 +328,10 @@ def validate_decomposition(W_mpo, W, rtol=0.00001, atol=1e-8):
     """
     W_tensor = mpo_to_tensor(W_mpo)
     W_tensor = torch.tensor(W_tensor)
-    d = len(W_mpo.shape) // 2
-    order = tuple(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2))))
+    order = get_permutation(W_tensor, decompose=False)
     W_tensor = W_tensor.permute(order)
     W_tensor = W_tensor.reshape(-1)
     W = W.reshape(-1)
     print(f"Error of MPO Decomposition: {torch.max(torch.abs(W - W_tensor))}")
     assert torch.allclose(W, W_tensor, rtol, atol)
+
