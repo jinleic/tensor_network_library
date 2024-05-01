@@ -1,7 +1,10 @@
 import torch
+import tensorly as tl
 import sys
 sys.path.append('../')
 from tensors.operations import mpo_decompostion, get_permutation, validate_decomposition
+
+tl.set_backend('pytorch')
 
 print("-"*50)
 print("< Test MPO Decomposition >")

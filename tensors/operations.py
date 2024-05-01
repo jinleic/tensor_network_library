@@ -24,44 +24,6 @@ def get_permutation(tensor, decompose=True):
         return tuple(torch.argsort(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2)))))
     else:
         return tuple(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2))))
-    
-
-def get_decomposition_permutation(tensor):
-    """Get the permutation for MPO Decomposition
-
-    Parameters
-    ----------
-    tensor : tensor
-        tensor to decompose
-    Returns
-    -------
-    order : list
-        permutation order
-    """
-    print("DeprecationWarning: get_decomposition_permutation is deprecated. Use get_permutation instead.")
-    return get_permutation(tensor, decompose=True)
-    assert len(tensor.shape) % 2 == 0, "The order of the tensor should be even"
-    d = len(tensor) // 2
-    return tuple(torch.argsort(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2)))))
-
-
-def get_decompression_permutation(tensor):
-    """Get the permutation for decompression of MPO Decomposition
-    
-    Parameters
-    ----------
-    tensor : tensor
-        tensor to decompress
-    Returns
-    -------
-    order : list
-        permutation order
-    """
-    print("DeprecationWarning: get_decompression_permutation is deprecated. Use get_permutation instead.")
-    return get_permutation(tensor, decompose=False)
-    assert len(tensor.shape) % 2 == 0, "The order of the tensor should be even"
-    d = len(tensor.shape) // 2
-    return tuple(torch.cat((torch.arange(0, 2 * d, 2), torch.arange(1, 2 * d, 2))))
 
 
 def _validate_tt_rank(
@@ -195,26 +157,38 @@ def matrix_by_vector(matrix, vector):
     MPO : MPO
         MPO Decomposition of the product
     """
-    assert len(matrix) == len(vector), "The number of factors in the matrix and vector should be the same"
-    d = len(matrix)
-    factors = [None] * d
-    for k in range(d):
-        m_k = matrix[k] # (r_{k-1}, i_k, j_k, r_k)
-        x_k = vector[k] # (d_{k-1}, j_k, d_k)
-        assert len(m_k.shape) == 4, "The matrix factor should be order-4 tensor"
-        assert len(x_k.shape) == 3, "The vector factor should be order-3 tensor"
-        r_prev, i_k, j_k, r_next = m_k.shape
-        d_prev, j_x, d_next = x_k.shape
-        assert j_k == j_x, "The inner dimensions of the matrix and vector should be the same"
-        m_k = m_k.transpose(0, 1, 3, 2) # (r_{k-1}, i_k, r_k, j_k)
-        m_k = m_k.reshape(-1, j_k) # (r_{k-1} * i_k *r_k, j_k)
-        x_k = x_k.transpose(1, 0, 2) # (j_k, d_{k-1}, d_k)
-        x_k = x_k.reshape(j_k, -1) # (j_k, d_{k-1} * d_k)
-        factors[k] = tl.dot(m_k, x_k) # (r_{k-1} * i_k * r_k, d_{k-1} * d_k)
-        factors[k] = factors[k].reshape(r_prev, i_k, r_next, d_prev, d_next)
-        factors[k] = factors[k].transpose(0, 3, 1, 2, 4)
-        factors[k] = factors[k].reshape(r_prev * d_prev, i_k, d_next * r_next)
-    return TTTensor(factors)
+    if tl.get_backend() == "numpy":
+        assert len(matrix) == len(vector), "The number of factors in the matrix and vector should be the same"
+        d = len(matrix)
+        factors = [None] * d
+        for k in range(d):
+            m_k = matrix[k] # (r_{k-1}, i_k, j_k, r_k)
+            x_k = vector[k] # (d_{k-1}, j_k, d_k)
+            assert len(m_k.shape) == 4, "The matrix factor should be order-4 tensor"
+            assert len(x_k.shape) == 3, "The vector factor should be order-3 tensor"
+            r_prev, i_k, j_k, r_next = m_k.shape
+            d_prev, j_x, d_next = x_k.shape
+            assert j_k == j_x, "The inner dimensions of the matrix and vector should be the same"
+            m_k = m_k.transpose(0, 1, 3, 2) # (r_{k-1}, i_k, r_k, j_k)
+            m_k = m_k.reshape(-1, j_k) # (r_{k-1} * i_k *r_k, j_k)
+            x_k = x_k.transpose(1, 0, 2) # (j_k, d_{k-1}, d_k)
+            x_k = x_k.reshape(j_k, -1) # (j_k, d_{k-1} * d_k)
+            factors[k] = tl.dot(m_k, x_k) # (r_{k-1} * i_k * r_k, d_{k-1} * d_k)
+            factors[k] = factors[k].reshape(r_prev, i_k, r_next, d_prev, d_next)
+            factors[k] = factors[k].transpose(0, 3, 1, 2, 4)
+            factors[k] = factors[k].reshape(r_prev * d_prev, i_k, d_next * r_next)
+        return TTTensor(factors)
+    elif tl.get_backend() == "pytorch":
+        assert len(matrix) == len(vector), "The number of factors in the matrix and vector should be the same"
+        d = len(matrix)
+        factors = [None] * d
+        for k in range(d):
+            r_prev, i_k, j_k, r_next = matrix[k].shape
+            d_prev, j_x, d_next = vector[k].shape
+            factors[k] = tl.tensordot(matrix[k], vector[k], ([2], [1]))
+            factors[k] = factors[k].permute(0, 3, 1, 2, 4)
+            factors[k] = factors[k].reshape(r_prev * d_prev, i_k, d_next * r_next)
+        return TTTensor(factors)
 
 
 def matrix_by_matrix(A, B):
@@ -231,28 +205,41 @@ def matrix_by_matrix(A, B):
     MPO : MPO
         MPO Decomposition of the product
     """
-    assert len(A) == len(B), "The number of factors in the matrix A and B should be the same"
-    d = len(A)
-    factors = [None] * d
-    for k in range(d):
-        a_k = A[k] # (r_{k-1}, i_k, j_k, r_k)
-        b_k = B[k] # (d_{k-1}, j_k, l_k, d_k)
-        # print(f"{k} shape: {a_k.shape}, {b_k.shape}")
-        assert len(a_k.shape) == 4, "The matrix factor should be order-4 tensor"
-        assert len(b_k.shape) == 4, "The vector factor should be order-4 tensor"
-        assert a_k.shape[2] == b_k.shape[1], "The inner dimensions of the matrix A and B should be the same"
-        r_prev, i_k, j_k, r_next = a_k.shape
-        d_prev, j_k, l_k, d_next = b_k.shape
-        a_k = a_k.transpose(0, 1, 3, 2) # (r_{k-1}, i_k, r_k, j_k)
-        a_k = a_k.reshape(-1, j_k) # (r_{k-1} * i_k * r_k, j_k)
-        b_k = b_k.transpose(1, 0, 2, 3) # (j_k, d_{k-1}, l_k, d_k)
-        b_k = b_k.reshape(j_k, -1) # (j_k, d_{k-1} * l_k * d_k)
-        # print(f"{k} dot: {a_k.shape}, {b_k.shape}")
-        factors[k] = tl.dot(a_k, b_k) # (r_{k-1} * i_k * r_k, d_{k-1} * l_k * d_k)
-        factors[k] = factors[k].reshape(r_prev, i_k, r_next, d_prev, l_k, d_next)
-        factors[k] = factors[k].transpose(0, 3, 1, 4, 2, 5) # (r_{k-1}, d_{k-1}, i_k, l_k, r_k, d_k)
-        factors[k] = factors[k].reshape(r_prev * d_prev, i_k, l_k, d_next * r_next)
-    return MPO(factors)
+    if tl.get_backend() == "numpy":
+        assert len(A) == len(B), "The number of factors in the matrix A and B should be the same"
+        d = len(A)
+        factors = [None] * d
+        for k in range(d):
+            a_k = A[k] # (r_{k-1}, i_k, j_k, r_k)
+            b_k = B[k] # (d_{k-1}, j_k, l_k, d_k)
+            # print(f"{k} shape: {a_k.shape}, {b_k.shape}")
+            assert len(a_k.shape) == 4, "The matrix factor should be order-4 tensor"
+            assert len(b_k.shape) == 4, "The vector factor should be order-4 tensor"
+            assert a_k.shape[2] == b_k.shape[1], "The inner dimensions of the matrix A and B should be the same"
+            r_prev, i_k, j_k, r_next = a_k.shape
+            d_prev, j_k, l_k, d_next = b_k.shape
+            a_k = a_k.transpose(0, 1, 3, 2) # (r_{k-1}, i_k, r_k, j_k)
+            a_k = a_k.reshape(-1, j_k) # (r_{k-1} * i_k * r_k, j_k)
+            b_k = b_k.transpose(1, 0, 2, 3) # (j_k, d_{k-1}, l_k, d_k)
+            b_k = b_k.reshape(j_k, -1) # (j_k, d_{k-1} * l_k * d_k)
+            # print(f"{k} dot: {a_k.shape}, {b_k.shape}")
+            factors[k] = tl.dot(a_k, b_k) # (r_{k-1} * i_k * r_k, d_{k-1} * l_k * d_k)
+            factors[k] = factors[k].reshape(r_prev, i_k, r_next, d_prev, l_k, d_next)
+            factors[k] = factors[k].transpose(0, 3, 1, 4, 2, 5) # (r_{k-1}, d_{k-1}, i_k, l_k, r_k, d_k)
+            factors[k] = factors[k].reshape(r_prev * d_prev, i_k, l_k, d_next * r_next)
+        return MPO(factors)
+    elif tl.get_backend() == "pytorch":
+        assert len(A) == len(B), "The number of factors in the matrix A and B should be the same"
+        d = len(A)
+        factors = [None] * d
+        for k in range(d):
+            r_prev, i_k, j_k, r_next = A[k].shape
+            d_prev, j_k, l_k, d_next = B[k].shape
+            print(f"{k} shape: {A[k].shape}, {B[k].shape}")
+            factors[k] = tl.tensordot(A[k], B[k], ([2], [1]))
+            factors[k] = factors[k].permute(0, 3, 1, 4, 2, 5) # (r_{k-1}, d_{k-1}, i_k, l_k, r_k, d_k)
+            factors[k] = factors[k].reshape(r_prev * d_prev, i_k, l_k, d_next * r_next)
+        return MPO(factors)
 
 def validate_stacked_product(y_mpo, y, rtol=0.00001, atol=1e-8):
     """Validate the stacked matrix-by-vector product of MPO Decomposition
@@ -270,7 +257,7 @@ def validate_stacked_product(y_mpo, y, rtol=0.00001, atol=1e-8):
     Raises error if the product is not valid
     """
     for i in range(len(y_mpo)):
-        y_mpo[i] = torch.tensor(tt_to_tensor(y_mpo[i]))
+        y_mpo[i] = tt_to_tensor(y_mpo[i]).clone().detach() if tl.get_backend() == "pytorch" else torch.tensor(tt_to_tensor(y_mpo[i]))
         y_mpo[i] = y_mpo[i].reshape(-1)
     y_tensor = torch.vstack(y_mpo).transpose(1,0).reshape(-1)
     y = y.reshape(-1)
@@ -294,13 +281,13 @@ def validate_product(y_mpo, y, rtol=0.00001, atol=1e-8):
     Raises error if the product is not valid
     """
     if len(y_mpo[0].shape) == 3:
-        y_tensor = torch.tensor(tt_to_tensor(y_mpo))
+        y_tensor = tt_to_tensor(y_mpo).clone().detach() if tl.get_backend() == "pytorch" else torch.tensor(tt_to_tensor(y_mpo))
         y_tensor = y_tensor.reshape(-1)
         y = y.reshape(-1)
         print(f"Error of MPO-form matrix-by-vector product: {torch.max(torch.abs(y - y_tensor))}")
         assert torch.allclose(y, y_tensor, rtol, atol)
     elif len(y_mpo[0].shape) == 4:
-        y_tensor = torch.tensor(mpo_to_tensor(y_mpo))
+        y_tensor = mpo_to_tensor(y_mpo).clone().detach() if tl.get_backend() == "pytorch" else torch.tensor(mpo_to_tensor(y_mpo))
         order = get_permutation(y_tensor, decompose=False)
         y_tensor = y_tensor.permute(order)
         y_tensor = y_tensor.reshape(-1)
@@ -327,7 +314,7 @@ def validate_decomposition(W_mpo, W, rtol=0.00001, atol=1e-8):
     Raises error if the decomposition is not valid
     """
     W_tensor = mpo_to_tensor(W_mpo)
-    W_tensor = torch.tensor(W_tensor)
+    W_tensor = W_tensor.clone().detach() if tl.get_backend() == "pytorch" else torch.tensor(W_tensor)
     order = get_permutation(W_tensor, decompose=False)
     W_tensor = W_tensor.permute(order)
     W_tensor = W_tensor.reshape(-1)
