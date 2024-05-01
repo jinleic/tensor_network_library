@@ -235,7 +235,7 @@ def matrix_by_matrix(A, B):
         for k in range(d):
             r_prev, i_k, j_k, r_next = A[k].shape
             d_prev, j_k, l_k, d_next = B[k].shape
-            print(f"{k} shape: {A[k].shape}, {B[k].shape}")
+            # print(f"{k} shape: {A[k].shape}, {B[k].shape}")
             factors[k] = tl.tensordot(A[k], B[k], ([2], [1]))
             factors[k] = factors[k].permute(0, 3, 1, 4, 2, 5) # (r_{k-1}, d_{k-1}, i_k, l_k, r_k, d_k)
             factors[k] = factors[k].reshape(r_prev * d_prev, i_k, l_k, d_next * r_next)

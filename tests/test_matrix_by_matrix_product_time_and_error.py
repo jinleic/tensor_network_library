@@ -11,7 +11,7 @@ tl.set_backend('pytorch')
 
 torch.random.manual_seed(0)
 
-bond_dims = [60]
+bond_dims = [1,10,20,30,40,50]
 pics_path = "../pics/"
 
 device = torch.device("cuda")
@@ -50,6 +50,7 @@ def time_product():
     errs = []
     matmul_times = []
     for b in bond_dims:
+        print(f"bond_dim = {b}")
         t, err, matmul_t = get_product_time(b)
         times.append(t)
         errs.append(err)
@@ -59,20 +60,34 @@ def time_product():
 def plot_product_time(times, matmul_times):
     # x = bond_dims, y = times
     fig, ax = plt.subplots()
+    if device == torch.device("cpu"):
+        ax.set_title(f"(4096,4096) @ (4096, 4096) Matrix by Matrix Product Time (CPU)")
+    else:
+        ax.set_title(f"(4096,4096) @ (4096, 4096) Matrix by Matrix Product Time (GPU)")
     ax.plot(bond_dims, times, label="mpo")
     ax.plot(bond_dims, matmul_times, label="torch.matmul")
     ax.set_xlabel("Bond Dimension")
     ax.set_ylabel("Time")
     ax.legend()
-    plt.savefig(f"{pics_path}matrix_by_matrix_product_time.png")
+    if device == torch.device("cpu"):
+        plt.savefig(f"{pics_path}matrix_by_matrix_product_time_cpu.png")
+    else:
+        plt.savefig(f"{pics_path}matrix_by_matrix_product_time_gpu.png")
 
 def plot_product_error(errs):
     # x = bond_dims, y = errs
     fig, ax = plt.subplots()
+    if device == torch.device("cpu"):
+        ax.set_title(f"(4096,4096) @ (4096, 4096) Matrix by Matrix Product Error (CPU)")
+    else:
+        ax.set_title(f"(4096,4096) @ (4096, 4096) Matrix by Matrix Product Error (GPU)")
     ax.plot(bond_dims, errs)
     ax.set_xlabel("Bond Dimension")
     ax.set_ylabel("Error")
-    plt.savefig(f"{pics_path}matrix_by_matrix_product_error.png")
+    if device == torch.device("cpu"):
+        plt.savefig(f"{pics_path}matrix_by_matrix_product_error_cpu.png")
+    else:
+        plt.savefig(f"{pics_path}matrix_by_matrix_product_error_gpu.png")
 
 times, errs, matmul_times = time_product()
 errs = [err.item() for err in errs]

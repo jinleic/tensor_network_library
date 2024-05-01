@@ -4,12 +4,19 @@ import sys
 sys.path.append('../')
 from tensors.operations import mpo_decompostion, get_permutation
 import matplotlib.pyplot as plt
+import tensorly as tl
+
+tl.set_backend('pytorch')
+
+pics_path = "../pics/"
 
 torch.random.manual_seed(0)
 
+device = torch.device("cpu")
+
 def get_decomposition_time(rank, bond_dim, ITERS=3):
     N = rank * rank * rank
-    W = torch.randn(N, N)
+    W = torch.randn(N, N).to(device)
     W_reshaped = W.reshape([rank, rank, rank, rank, rank, rank])
     order = get_permutation(W_reshaped, decompose=True)
     W_reshaped = W_reshaped.permute(order)
@@ -31,12 +38,19 @@ def time_decomposition():
 
 def plot_decomposition_time(dims, times):
     fig, ax = plt.subplots()
+    if device == torch.device("cpu"):
+        ax.set_title("Decomposition Time (CPU)")
+    else:
+        ax.set_title("Decomposition Time (GPU)")
     for i, b in enumerate([1, 10, 50, 100]):
         ax.plot(dims, times[i], label=f"Bond dimension: {b}")
     ax.set_xlabel("Dimension")
     ax.set_ylabel("Time (s)")
     ax.legend()
-    plt.savefig("Decomposition Time.png")
+    if device == torch.device("cpu"):
+        plt.savefig(f"{pics_path}decomposition_time_cpu.png")
+    else:
+        plt.savefig(f"{pics_path}decomposition_time_gpu.png")
 
 dims, times = time_decomposition()
 plot_decomposition_time(dims, times)
