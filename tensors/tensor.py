@@ -42,6 +42,16 @@ def _validate_mpo(factors):
 
     return tuple(shape), tuple(rank)
 
+
+def _calculate_compression_rate(factors):
+    original_size = 1
+    compressed_size = 0
+    for factor in factors:
+        original_size *= factor.shape[1] * factor.shape[2]
+        compressed_size += factor.shape[0] * factor.shape[1] * factor.shape[2] * factor.shape[3]
+    return compressed_size / original_size
+
+
 class MPO(FactorizedTensor):
     def __init__(self, factors, inplace=False):
         super().__init__()
@@ -52,6 +62,7 @@ class MPO(FactorizedTensor):
         self.shape = tuple(shape)
         self.rank = tuple(rank)
         self.factors = factors
+        self.compression_rate = _calculate_compression_rate(factors)
 
     def __getitem__(self, index):
         return self.factors[index]

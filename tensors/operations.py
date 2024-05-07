@@ -189,9 +189,15 @@ def matrix_by_vector(matrix, vector):
             factors[k] = factors[k].permute(0, 3, 1, 2, 4)
             factors[k] = factors[k].reshape(r_prev * d_prev, i_k, d_next * r_next)
         return TTTensor(factors)
+    
+
+def _validate_round_dim(factors, round_dim):
+    rank = factors.rank
+    for r in rank[1:-1]:
+        assert r == round_dim ** 2, "The rank of the factors should be the square of the round_dim"
 
 
-def matrix_by_matrix(A, B):
+def matrix_by_matrix(A, B, round_dim=None):
     """Perform matrix-by-matrix product
     
     Parameters
@@ -209,6 +215,11 @@ def matrix_by_matrix(A, B):
         assert len(A) == len(B), "The number of factors in the matrix A and B should be the same"
         d = len(A)
         factors = [None] * d
+        if round_dim is not None:
+            _validate_round_dim(A, round_dim)
+            _validate_round_dim(B, round_dim)
+            A = mpo_round(A, [1, round_dim, round_dim, 1])
+            B = mpo_round(B, [1, round_dim, round_dim, 1])
         for k in range(d):
             a_k = A[k] # (r_{k-1}, i_k, j_k, r_k)
             b_k = B[k] # (d_{k-1}, j_k, l_k, d_k)
@@ -228,14 +239,18 @@ def matrix_by_matrix(A, B):
             factors[k] = factors[k].transpose(0, 3, 1, 4, 2, 5) # (r_{k-1}, d_{k-1}, i_k, l_k, r_k, d_k)
             factors[k] = factors[k].reshape(r_prev * d_prev, i_k, l_k, d_next * r_next)
         return MPO(factors)
-    elif tl.get_backend() == "pytorch":
+    elif tl.get_backend() == "pytorch":          
         assert len(A) == len(B), "The number of factors in the matrix A and B should be the same"
         d = len(A)
         factors = [None] * d
+        if round_dim is not None:
+            _validate_round_dim(A, round_dim)
+            _validate_round_dim(B, round_dim)
+            A = mpo_round(A, [1, round_dim, round_dim, 1])
+            B = mpo_round(B, [1, round_dim, round_dim, 1])
         for k in range(d):
             r_prev, i_k, j_k, r_next = A[k].shape
             d_prev, j_k, l_k, d_next = B[k].shape
-            # print(f"{k} shape: {A[k].shape}, {B[k].shape}")
             factors[k] = tl.tensordot(A[k], B[k], ([2], [1]))
             factors[k] = factors[k].permute(0, 3, 1, 4, 2, 5) # (r_{k-1}, d_{k-1}, i_k, l_k, r_k, d_k)
             factors[k] = factors[k].reshape(r_prev * d_prev, i_k, l_k, d_next * r_next)
@@ -322,3 +337,61 @@ def validate_decomposition(W_mpo, W, rtol=0.00001, atol=1e-8):
     print(f"Error of MPO Decomposition: {torch.max(torch.abs(W - W_tensor))}")
     assert torch.allclose(W, W_tensor, rtol, atol)
 
+
+def RQ_factorization(X):
+    """Perform RQ Factorization
+    
+    Parameters
+    ----------
+    X : tensor
+        tensor to factorize
+    Returns
+    -------
+    R : tensor
+        upper triangular matrix
+    Q : tensor
+        row-orthogonal matrix
+    """
+    Q, R = tl.qr(X.T)
+    return R.T, Q.T
+
+
+def mpo_round(factors, rank):
+    """Round the MPO Decomposition
+
+    Parameters
+    ----------
+    factors : MPO
+        MPO Decomposition of the tensor
+    rank : int list
+        ranks of the rounded MPO
+    Returns
+    -------
+    MPO : MPO
+        rounded MPO Decomposition
+    """
+    d = len(factors)
+
+    factors_shape = [f.shape for f in factors]
+
+    # right-to-left orthogonalization
+    for i in range(d-1, 0, -1):
+        right_unfolding = factors[i].reshape(factors_shape[i][0], -1) # (r_{k-1}, i_k * j_k * r_k)
+        R, Q = RQ_factorization(right_unfolding) # (r_{k-1}, r_{k-1}), (r_{k-1}, i_k * j_k * r_k)
+        factors[i] = Q # (r_{k-1}, i_k * j_k * r_k)
+        factors[i-1] = tl.tensordot(factors[i-1], R, ([3], [0]))
+
+    # left-to-right svd
+    for i in range(d-1):
+        n_row = int(rank[i] * factors_shape[i][1] * factors_shape[i][2])
+        left_unfolding = factors[i].reshape(n_row, -1) # (r_{k-1} * i_k * j_k, r_k)
+        (n_row, n_column) = left_unfolding.shape
+        current_rank = min(n_row, n_column, rank[i+1])
+        U, S, V = svd_interface(left_unfolding, n_eigenvecs=current_rank, method="truncated_svd")
+        right = tl.reshape(S, (-1, 1)) * V
+        rank[i+1] = current_rank
+        factors[i] = U.reshape(rank[i], factors_shape[i][1], factors_shape[i][2], rank[i+1])
+        factors[i+1] = tl.tensordot(right, factors[i+1], ([1], [0]))
+    factors[-1] = factors[-1].reshape(rank[-2], factors_shape[-1][1], factors_shape[-1][2], 1)
+
+    return MPO(factors)
