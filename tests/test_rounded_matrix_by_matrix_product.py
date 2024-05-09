@@ -16,9 +16,9 @@ torch.random.manual_seed(0)
 bond_dims = [1,4,9,16,25,36,49,64,81,100,121,144,169,196,225,256]
 pics_path = "../pics/"
 
-device = torch.device("cuda")
+device = torch.device("cpu")
 
-def get_product_time(bond_dim, ITERS=3):
+def get_product_time(bond_dim, rounding=False, ITERS=3):
     rank = 16
     N = 4096
     W = torch.randn(N, N).to(device)
@@ -33,7 +33,10 @@ def get_product_time(bond_dim, ITERS=3):
     x_mpo = mpo_decompostion(x_reshaped, rank=[1, bond_dim, bond_dim, 1])
     start = time.time()
     for _ in range(ITERS):
-        y_mpo = matrix_by_matrix(W_mpo, x_mpo, round_dim=int(np.sqrt(bond_dim)))
+        if rounding:
+            y_mpo = matrix_by_matrix(W_mpo, x_mpo, round_dim=int(np.sqrt(bond_dim)))
+        else:
+            y_mpo = matrix_by_matrix(W_mpo, x_mpo)
     end = time.time()
     mpo_time = (end - start) / ITERS
     y_tensor = mpo_to_tensor(y_mpo).clone().detach()
@@ -53,23 +56,35 @@ def time_product():
     times = []
     errs = []
     matmul_times = []
+    plain_times = []
+    plain_errs = []
+    plain_matmul_times = []
     for b in bond_dims:
-        print(f"bond_dim = {b}")
+        print(f"rounding, bond_dim = {b}")
         t, err, matmul_t = get_product_time(b)
         times.append(t)
         errs.append(err)
         matmul_times.append(matmul_t)
-    return times, errs, matmul_times
+    for b in bond_dims:
+        if b > 50:
+            break
+        print(f"no rounding, bond_dim={b}")
+        t, err, matmul_t = get_product_time(b)
+        plain_times.append(t)
+        plain_errs.append(err)
+        plain_matmul_times.append(matmul_t)
+    return times, errs, matmul_times, plain_times, plain_errs, plain_matmul_times
 
-def plot_product_time(times, matmul_times):
+def plot_product_time(times, matmul_times, plain_times):
     # x = bond_dims, y = times
     fig, ax = plt.subplots()
     if device == torch.device("cpu"):
         ax.set_title(f"(4096,4096) @ (4096, 4096) Rounded Matrix by Matrix Product Time (CPU)")
     else:
         ax.set_title(f"(4096,4096) @ (4096, 4096) Rounded Matrix by Matrix Product Time (GPU)")
-    ax.plot(bond_dims, times, label="mpo")
+    ax.plot(bond_dims, times, label="rounded")
     ax.plot(bond_dims, matmul_times, label="torch.matmul")
+    ax.plot(bond_dims, plain_times, label="not rounded")
     ax.set_xlabel("Bond Dimension")
     ax.set_ylabel("Time")
     ax.legend()
@@ -78,24 +93,26 @@ def plot_product_time(times, matmul_times):
     else:
         plt.savefig(f"{pics_path}rounded_matrix_by_matrix_product_time_gpu.png")
 
-def plot_product_error(errs):
+def plot_product_error(errs, plain_errs):
     # x = bond_dims, y = errs
     fig, ax = plt.subplots()
     if device == torch.device("cpu"):
         ax.set_title(f"(4096,4096) @ (4096, 4096) Rounded Matrix by Matrix Product Error (CPU)")
     else:
         ax.set_title(f"(4096,4096) @ (4096, 4096) Rounded Matrix by Matrix Product Error (GPU)")
-    ax.plot(bond_dims, errs)
+    ax.plot(bond_dims, errs, label="rounded")
+    ax.plot(bond_dims, plain_errs, label="not rounded")
     ax.set_xlabel("Bond Dimension")
     ax.set_ylabel("Error")
+    ax.legend()
     if device == torch.device("cpu"):
         plt.savefig(f"{pics_path}rounded_matrix_by_matrix_product_error_cpu.png")
     else:
         plt.savefig(f"{pics_path}rounded_matrix_by_matrix_product_error_gpu.png")
 
 if __name__ == "__main__":
-    times, errs, matmul_times = time_product()
+    times, errs, matmul_times, plain_times, plain_errs, plain_matmul_times = time_product()
     errs = [err.item() for err in errs]
-    plot_product_time(times, matmul_times)
-    plot_product_error(errs)
+    plot_product_time(times, matmul_times, plain_times)
+    plot_product_error(errs, plain_errs)
 
