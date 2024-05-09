@@ -271,12 +271,14 @@ def validate_stacked_product(y_mpo, y, rtol=0.00001, atol=1e-8):
         absolute tolerance
     Raises error if the product is not valid
     """
+    assert False, "This function is deprecated."
     for i in range(len(y_mpo)):
         y_mpo[i] = tt_to_tensor(y_mpo[i]).clone().detach() if tl.get_backend() == "pytorch" else torch.tensor(tt_to_tensor(y_mpo[i]))
         y_mpo[i] = y_mpo[i].reshape(-1)
     y_tensor = torch.vstack(y_mpo).transpose(1,0).reshape(-1)
     y = y.reshape(-1)
-    print(f"Error of stacked MPO-form matrix-by-vector product: {torch.max(torch.abs(y_tensor - y))}")
+    # print(f"Error of stacked MPO-form matrix-by-vector product: {torch.max(torch.abs(y_tensor - y))}")
+    print(f"Error of stacked MPO-form matrix-by-vector product: {torch.norm(y_tensor - y, p=2) / torch.norm(y, p=2)}")
     assert torch.allclose(y_tensor, y, rtol, atol)
 
 
@@ -299,7 +301,8 @@ def validate_product(y_mpo, y, rtol=0.00001, atol=1e-8):
         y_tensor = tt_to_tensor(y_mpo).clone().detach() if tl.get_backend() == "pytorch" else torch.tensor(tt_to_tensor(y_mpo))
         y_tensor = y_tensor.reshape(-1)
         y = y.reshape(-1)
-        print(f"Error of MPO-form matrix-by-vector product: {torch.max(torch.abs(y - y_tensor))}")
+        # print(f"Error of MPO-form matrix-by-vector product: {torch.max(torch.abs(y - y_tensor))}")
+        print(f"Error of MPO-form matrix-by-vector product: {torch.norm(y - y_tensor, p=2) / torch.norm(y, p=2)}")
         assert torch.allclose(y, y_tensor, rtol, atol)
     elif len(y_mpo[0].shape) == 4:
         y_tensor = mpo_to_tensor(y_mpo).clone().detach() if tl.get_backend() == "pytorch" else torch.tensor(mpo_to_tensor(y_mpo))
@@ -307,7 +310,8 @@ def validate_product(y_mpo, y, rtol=0.00001, atol=1e-8):
         y_tensor = y_tensor.permute(order)
         y_tensor = y_tensor.reshape(-1)
         y = y.reshape(-1)
-        print(f"Error of MPO-form matrix-by-matrix product: {torch.max(torch.abs(y - y_tensor))}")
+        # print(f"Error of MPO-form matrix-by-matrix product: {torch.max(torch.abs(y - y_tensor))}")
+        print(f"Error of MPO-form matrix-by-matrix product: {torch.norm(y - y_tensor, p=2) / torch.norm(y, p=2)}")
         assert torch.allclose(y, y_tensor, rtol, atol)
     else:
         raise ValueError("The order of the MPO factors should be 3 or 4")
@@ -334,7 +338,8 @@ def validate_decomposition(W_mpo, W, rtol=0.00001, atol=1e-8):
     W_tensor = W_tensor.permute(order)
     W_tensor = W_tensor.reshape(-1)
     W = W.reshape(-1)
-    print(f"Error of MPO Decomposition: {torch.max(torch.abs(W - W_tensor))}")
+    # print(f"Error of MPO Decomposition: {torch.max(torch.abs(W - W_tensor))}")
+    print(f"Error of MPO Decomposition: {torch.norm(W - W_tensor, p=2) / torch.norm(W, p=2)}")
     assert torch.allclose(W, W_tensor, rtol, atol)
 
 

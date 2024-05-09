@@ -35,7 +35,8 @@ def get_product_time(rank, bond_dim, ITERS=3):
     y_tensor = tt_to_tensor(y_mpo).clone().detach()
     y_tensor = y_tensor.reshape(-1)
     y = y.reshape(-1)
-    err = torch.max(torch.abs(y - y_tensor))
+    # err = torch.max(torch.abs(y - y_tensor))
+    err = torch.norm(y - y_tensor, p=2) / torch.norm(y, p=2)
     start = time.time()
     for _ in range(ITERS):
         y = torch.matmul(W, x)

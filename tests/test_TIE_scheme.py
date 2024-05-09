@@ -165,4 +165,4 @@ W_mpo = mpo_decompostion(W_reshaped, rank=[1, bond_dim, bond_dim, 1])
 # validate_product(y_mpo, y, 1e-3, 1e-3)
 
 y_scheme = matrix_by_vector_scheme(W_mpo, x_reshaped, transform_factor=True).reshape(-1)
-print(f"error: {torch.max(torch.abs(y_scheme - y))}")
+print(f"error: {torch.norm(y - y_scheme, p=2) / torch.norm(y, p=2)}")
