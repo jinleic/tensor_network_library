@@ -49,7 +49,7 @@ def _calculate_compression_rate(factors):
     for factor in factors:
         original_size *= factor.shape[1] * factor.shape[2]
         compressed_size += factor.shape[0] * factor.shape[1] * factor.shape[2] * factor.shape[3]
-    return compressed_size / original_size
+    return original_size / compressed_size
 
 
 class MPO(FactorizedTensor):
