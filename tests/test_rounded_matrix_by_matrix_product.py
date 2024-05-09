@@ -16,7 +16,7 @@ torch.random.manual_seed(0)
 bond_dims = [1,4,9,16,25,36,49,64,81,100,121,144,169,196,225,256]
 pics_path = "../pics/"
 
-device = torch.device("cpu")
+device = torch.device("cuda")
 
 def get_product_time(bond_dim, ITERS=3):
     rank = 16
