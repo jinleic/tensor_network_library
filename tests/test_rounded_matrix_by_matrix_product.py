@@ -14,9 +14,10 @@ torch.random.manual_seed(0)
 
 # bond_dims = [1,10,20,30,40,50]
 bond_dims = [1,4,9,16,25,36,49,64,81,100,121,144,169,196,225,256]
+econ_bond_dims = bond_dims[:7]
 pics_path = "../pics/"
 
-device = torch.device("cpu")
+device = torch.device("cuda")
 
 def get_product_time(bond_dim, rounding=False, ITERS=3):
     rank = 16
@@ -61,15 +62,13 @@ def time_product():
     plain_matmul_times = []
     for b in bond_dims:
         print(f"rounding, bond_dim = {b}")
-        t, err, matmul_t = get_product_time(b)
+        t, err, matmul_t = get_product_time(b, rounding=True)
         times.append(t)
         errs.append(err)
         matmul_times.append(matmul_t)
-    for b in bond_dims:
-        if b > 50:
-            break
+    for b in econ_bond_dims:
         print(f"no rounding, bond_dim={b}")
-        t, err, matmul_t = get_product_time(b)
+        t, err, matmul_t = get_product_time(b, rounding=False)
         plain_times.append(t)
         plain_errs.append(err)
         plain_matmul_times.append(matmul_t)
@@ -84,7 +83,7 @@ def plot_product_time(times, matmul_times, plain_times):
         ax.set_title(f"(4096,4096) @ (4096, 4096) Rounded Matrix by Matrix Product Time (GPU)")
     ax.plot(bond_dims, times, label="rounded")
     ax.plot(bond_dims, matmul_times, label="torch.matmul")
-    ax.plot(bond_dims, plain_times, label="not rounded")
+    ax.plot(econ_bond_dims, plain_times, label="not rounded")
     ax.set_xlabel("Bond Dimension")
     ax.set_ylabel("Time")
     ax.legend()
@@ -101,7 +100,7 @@ def plot_product_error(errs, plain_errs):
     else:
         ax.set_title(f"(4096,4096) @ (4096, 4096) Rounded Matrix by Matrix Product Error (GPU)")
     ax.plot(bond_dims, errs, label="rounded")
-    ax.plot(bond_dims, plain_errs, label="not rounded")
+    ax.plot(econ_bond_dims, plain_errs, label="not rounded")
     ax.set_xlabel("Bond Dimension")
     ax.set_ylabel("Error")
     ax.legend()
@@ -113,6 +112,7 @@ def plot_product_error(errs, plain_errs):
 if __name__ == "__main__":
     times, errs, matmul_times, plain_times, plain_errs, plain_matmul_times = time_product()
     errs = [err.item() for err in errs]
+    plain_errs = [err.item() for err in plain_errs]
     plot_product_time(times, matmul_times, plain_times)
     plot_product_error(errs, plain_errs)
 
