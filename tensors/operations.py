@@ -194,7 +194,7 @@ def matrix_by_vector(matrix, vector):
 def _validate_round_dim(factors, round_dim):
     rank = factors.rank
     for r in rank[1:-1]:
-        assert r == round_dim ** 2, "The rank of the factors should be the square of the round_dim"
+        assert r == round_dim ** 2, f"The rank of the factors {r} should be the square of the round_dim {round_dim}"
 
 
 def matrix_by_matrix(A, B, round_dim=None):
